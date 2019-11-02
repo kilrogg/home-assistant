@@ -14,6 +14,7 @@ from homeassistant.const import (
 from homeassistant.util.decorator import Registry
 from homeassistant.components.climate import const as climate
 from homeassistant.components import (
+    alarm_control_panel,
     alert,
     automation,
     binary_sensor,
@@ -33,21 +34,30 @@ from homeassistant.components import (
 from .const import CONF_DESCRIPTION, CONF_DISPLAY_CATEGORIES
 from .capabilities import (
     AlexaBrightnessController,
+    AlexaChannelController,
     AlexaColorController,
     AlexaColorTemperatureController,
     AlexaContactSensor,
+    AlexaDoorbellEventSource,
     AlexaEndpointHealth,
     AlexaInputController,
     AlexaLockController,
+    AlexaModeController,
     AlexaMotionSensor,
     AlexaPercentageController,
     AlexaPlaybackController,
+    AlexaPlaybackStateReporter,
     AlexaPowerController,
+    AlexaPowerLevelController,
+    AlexaRangeController,
     AlexaSceneController,
+    AlexaSecurityPanelController,
+    AlexaSeekController,
     AlexaSpeaker,
     AlexaStepSpeaker,
     AlexaTemperatureSensor,
     AlexaThermostatController,
+    AlexaToggleController,
 )
 
 ENTITY_ADAPTERS = Registry()
@@ -76,8 +86,17 @@ class DisplayCategory:
     # Indicates a door.
     DOOR = "DOOR"
 
+    # Indicates a doorbell.
+    DOORBELL = "DOORBELL"
+
+    # Indicates a fan.
+    FAN = "FAN"
+
     # Indicates light sources or fixtures.
     LIGHT = "LIGHT"
+
+    # Indicates a microwave oven.
+    MICROWAVE = "MICROWAVE"
 
     # Indicates an endpoint that detects and reports motion.
     MOTION_SENSOR = "MOTION_SENSOR"
@@ -90,6 +109,9 @@ class DisplayCategory:
     # might include turning off lights and lowering the thermostat, but the
     # order is unimportant.    Applies to Scenes
     SCENE_TRIGGER = "SCENE_TRIGGER"
+
+    # Indicates a security panel.
+    SECURITY_PANEL = "SECURITY_PANEL"
 
     # Indicates an endpoint that locks.
     SMARTLOCK = "SMARTLOCK"
@@ -324,7 +346,7 @@ class FanCapabilities(AlexaEntity):
 
     def default_display_categories(self):
         """Return the display categories for this entity."""
-        return [DisplayCategory.OTHER]
+        return [DisplayCategory.FAN]
 
     def interfaces(self):
         """Yield the supported interfaces."""
@@ -332,6 +354,20 @@ class FanCapabilities(AlexaEntity):
         supported = self.entity.attributes.get(ATTR_SUPPORTED_FEATURES, 0)
         if supported & fan.SUPPORT_SET_SPEED:
             yield AlexaPercentageController(self.entity)
+            yield AlexaPowerLevelController(self.entity)
+            yield AlexaRangeController(
+                self.entity, instance=f"{fan.DOMAIN}.{fan.ATTR_SPEED}"
+            )
+
+        if supported & fan.SUPPORT_OSCILLATE:
+            yield AlexaToggleController(
+                self.entity, instance=f"{fan.DOMAIN}.{fan.ATTR_OSCILLATING}"
+            )
+        if supported & fan.SUPPORT_DIRECTION:
+            yield AlexaModeController(
+                self.entity, instance=f"{fan.DOMAIN}.{fan.ATTR_DIRECTION}"
+            )
+
         yield AlexaEndpointHealth(self.hass, self.entity)
 
 
@@ -357,6 +393,10 @@ class MediaPlayerCapabilities(AlexaEntity):
 
     def default_display_categories(self):
         """Return the display categories for this entity."""
+        device_class = self.entity.attributes.get(ATTR_DEVICE_CLASS)
+        if device_class == media_player.DEVICE_CLASS_SPEAKER:
+            return [DisplayCategory.SPEAKER]
+
         return [DisplayCategory.TV]
 
     def interfaces(self):
@@ -384,9 +424,16 @@ class MediaPlayerCapabilities(AlexaEntity):
         )
         if supported & playback_features:
             yield AlexaPlaybackController(self.entity)
+            yield AlexaPlaybackStateReporter(self.entity)
+
+        if supported & media_player.const.SUPPORT_SEEK:
+            yield AlexaSeekController(self.entity)
 
         if supported & media_player.SUPPORT_SELECT_SOURCE:
             yield AlexaInputController(self.entity)
+
+        if supported & media_player.const.SUPPORT_PLAY_MEDIA:
+            yield AlexaChannelController(self.entity)
 
 
 @ENTITY_ADAPTERS.register(scene.DOMAIN)
@@ -464,6 +511,11 @@ class BinarySensorCapabilities(AlexaEntity):
         elif sensor_type is self.TYPE_MOTION:
             yield AlexaMotionSensor(self.hass, self.entity)
 
+        entity_conf = self.config.entity_config.get(self.entity.entity_id, {})
+        if CONF_DISPLAY_CATEGORIES in entity_conf:
+            if entity_conf[CONF_DISPLAY_CATEGORIES] == DisplayCategory.DOORBELL:
+                yield AlexaDoorbellEventSource(self.entity)
+
         yield AlexaEndpointHealth(self.hass, self.entity)
 
     def get_type(self):
@@ -473,3 +525,18 @@ class BinarySensorCapabilities(AlexaEntity):
             return self.TYPE_CONTACT
         if attrs.get(ATTR_DEVICE_CLASS) == "motion":
             return self.TYPE_MOTION
+
+
+@ENTITY_ADAPTERS.register(alarm_control_panel.DOMAIN)
+class AlarmControlPanelCapabilities(AlexaEntity):
+    """Class to represent Alarm capabilities."""
+
+    def default_display_categories(self):
+        """Return the display categories for this entity."""
+        return [DisplayCategory.SECURITY_PANEL]
+
+    def interfaces(self):
+        """Yield the supported interfaces."""
+        if not self.entity.attributes.get("code_arm_required"):
+            yield AlexaSecurityPanelController(self.hass, self.entity)
+            yield AlexaEndpointHealth(self.hass, self.entity)

@@ -28,3 +28,65 @@ async def test_reload_config_service(hass):
 
     assert hass.states.get("scene.hallo") is None
     assert hass.states.get("scene.bye") is not None
+
+
+async def test_apply_service(hass):
+    """Test the apply service."""
+    assert await async_setup_component(hass, "scene", {})
+    assert await async_setup_component(hass, "light", {"light": {"platform": "demo"}})
+
+    assert await hass.services.async_call(
+        "scene", "apply", {"entities": {"light.bed_light": "off"}}, blocking=True
+    )
+
+    assert hass.states.get("light.bed_light").state == "off"
+
+    assert await hass.services.async_call(
+        "scene",
+        "apply",
+        {"entities": {"light.bed_light": {"state": "on", "brightness": 50}}},
+        blocking=True,
+    )
+
+    state = hass.states.get("light.bed_light")
+    assert state.state == "on"
+    assert state.attributes["brightness"] == 50
+
+
+async def test_create_service(hass, caplog):
+    """Test the create service."""
+    assert await async_setup_component(hass, "scene", {})
+    assert hass.states.get("scene.hallo") is None
+
+    assert await hass.services.async_call(
+        "scene",
+        "create",
+        {
+            "scene_id": "hallo",
+            "entities": {"light.bed_light": {"state": "on", "brightness": 50}},
+        },
+        blocking=True,
+    )
+
+    await hass.async_block_till_done()
+    scene = hass.states.get("scene.hallo")
+    assert scene is not None
+    assert scene.domain == "scene"
+    assert scene.name == "hallo"
+    assert scene.state == "scening"
+    assert scene.attributes.get("entity_id") == ["light.bed_light"]
+
+    assert await hass.services.async_call(
+        "scene",
+        "create",
+        {
+            "scene_id": "hallo",
+            "entities": {"light.bed_light": {"state": "on", "brightness": 50}},
+        },
+        blocking=True,
+    )
+
+    await hass.async_block_till_done()
+    assert "The scene scene.hallo already exists" in caplog.text
+    assert hass.states.get("scene.hallo") is not None
+    assert hass.states.get("scene.hallo_2") is None

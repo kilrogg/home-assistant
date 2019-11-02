@@ -64,11 +64,7 @@ from homeassistant.exceptions import (
     Unauthorized,
     ServiceNotFound,
 )
-from homeassistant.util.async_ import (
-    run_coroutine_threadsafe,
-    run_callback_threadsafe,
-    fire_coroutine_threadsafe,
-)
+from homeassistant.util.async_ import run_callback_threadsafe, fire_coroutine_threadsafe
 from homeassistant import util
 import homeassistant.util.dt as dt_util
 from homeassistant.util import location, slugify
@@ -81,7 +77,8 @@ from homeassistant.util.unit_system import (  # NOQA
 # Typing imports that create a circular dependency
 # pylint: disable=using-constant-test
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntries  # noqa
+    from homeassistant.config_entries import ConfigEntries
+    from homeassistant.components.http import HomeAssistantHTTP
 
 # pylint: disable=invalid-name
 T = TypeVar("T")
@@ -166,6 +163,9 @@ class CoreState(enum.Enum):
 class HomeAssistant:
     """Root object of the Home Assistant home automation."""
 
+    http: "HomeAssistantHTTP" = None  # type: ignore
+    config_entries: "ConfigEntries" = None  # type: ignore
+
     def __init__(self, loop: Optional[asyncio.events.AbstractEventLoop] = None) -> None:
         """Initialize new Home Assistant object."""
         self.loop: asyncio.events.AbstractEventLoop = (loop or asyncio.get_event_loop())
@@ -190,7 +190,6 @@ class HomeAssistant:
         self.data: dict = {}
         self.state = CoreState.not_running
         self.exit_code = 0
-        self.config_entries: Optional[ConfigEntries] = None
         # If not None, use to signal end-of-loop
         self._stopped: Optional[asyncio.Event] = None
 
@@ -375,7 +374,9 @@ class HomeAssistant:
 
     def block_till_done(self) -> None:
         """Block till all pending work is done."""
-        run_coroutine_threadsafe(self.async_block_till_done(), self.loop).result()
+        asyncio.run_coroutine_threadsafe(
+            self.async_block_till_done(), self.loop
+        ).result()
 
     async def async_block_till_done(self) -> None:
         """Block till all pending work is done."""
@@ -1168,7 +1169,7 @@ class ServiceRegistry:
         Because the service is sent as an event you are not allowed to use
         the keys ATTR_DOMAIN and ATTR_SERVICE in your service_data.
         """
-        return run_coroutine_threadsafe(  # type: ignore
+        return asyncio.run_coroutine_threadsafe(
             self.async_call(domain, service, service_data, blocking, context),
             self._hass.loop,
         ).result()
@@ -1282,7 +1283,7 @@ class Config:
         self.skip_pip: bool = False
 
         # List of loaded components
-        self.components: set = set()
+        self.components: Set[str] = set()
 
         # API (HTTP) server configuration, see components.http.ApiConfig
         self.api: Optional[Any] = None
